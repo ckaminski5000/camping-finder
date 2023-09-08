@@ -13,6 +13,9 @@ type Routes []Route
 
 var routes = Routes{
 	Route{"Healthcheck", "GET", "/healthcheck", HealthcheckHandler},
+	// Route{"LngLat", "GET", "/lnglat", GeocodingHandler},
+	Route{"GetSuggestionListByString", "POST", "/suggestions", GetRecreationSuggestionListByString},
+	Route{"GetLocationListByCity", "POST", "/locations", GetLocationListByCity},
 	//=== USERS ===
 	Route{"ListUsers", "GET", "/users", ListUsersHandler},
 	Route{"GetUser", "GET", "/users/{uid:[0-9]+}", GetUserHandler},

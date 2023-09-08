@@ -4,8 +4,10 @@ import (
 	"os"
 	"strings"
 
-	passport "github.com/leeprovoost/go-rest-api-template/internal/passport"
-	vparse "github.com/leeprovoost/go-rest-api-template/pkg/version"
+	passport "camping-finder/internal/passport"
+	vparse "camping-finder/pkg/version"
+
+	"github.com/joho/godotenv"
 	log "github.com/sirupsen/logrus"
 	"github.com/unrolled/render"
 )
@@ -24,15 +26,22 @@ func main() {
 	// ===========================================================================
 	// Load environment variables
 	// ===========================================================================
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
 	var (
 		env     = strings.ToUpper(os.Getenv("ENV")) // LOCAL, DEV, STG, PRD
 		port    = os.Getenv("PORT")                 // server traffic on this port
-		version = os.Getenv("VERSION")              // path to VERSION file
+		Version = os.Getenv("VERSION")              // path to VERSION file
 	)
+
 	// ===========================================================================
 	// Read version information
 	// ===========================================================================
-	version, err := vparse.ParseVersionFile(version)
+
+	version, err := vparse.ParseVersionFile(Version)
 	if err != nil {
 		log.WithFields(log.Fields{
 			"env":  env,

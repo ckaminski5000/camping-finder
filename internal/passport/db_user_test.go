@@ -4,7 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/leeprovoost/go-rest-api-template/internal/passport/models"
+	"camping-finder/internal/passport/models"
+
 	"github.com/stretchr/testify/assert"
 )
 

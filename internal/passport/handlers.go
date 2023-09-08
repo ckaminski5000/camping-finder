@@ -1,14 +1,20 @@
 package passport
 
 import (
+	"camping-finder/pkg/errors"
+	"camping-finder/pkg/geocoding"
+	"camping-finder/pkg/health"
+	reservationchecker "camping-finder/pkg/reservationChecker"
+	"camping-finder/pkg/status"
+	"camping-finder/pkg/util"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 
+	models "camping-finder/internal/passport/models"
+
 	"github.com/gorilla/mux"
-	models "github.com/leeprovoost/go-rest-api-template/internal/passport/models"
-	"github.com/leeprovoost/go-rest-api-template/pkg/health"
-	"github.com/leeprovoost/go-rest-api-template/pkg/status"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -30,10 +36,77 @@ func MakeHandler(appEnv AppEnv, fn func(http.ResponseWriter, *http.Request, AppE
 // HealthcheckHandler returns useful info about the app
 func HealthcheckHandler(w http.ResponseWriter, req *http.Request, appEnv AppEnv) {
 	check := health.Check{
-		AppName: "go-rest-api-template",
+		AppName: "Camping_Finder",
 		Version: appEnv.Version,
 	}
 	appEnv.Render.JSON(w, http.StatusOK, check)
+}
+
+/*func GeocodingHandler(w http.ResponseWriter, req *http.Request, appEnv AppEnv) {
+	response := geocoding.TestUrlMaker()
+	appEnv.Render.JSON(w, http.StatusOK, response)
+}*/
+
+func GetRecreationSuggestionListByString(w http.ResponseWriter, req *http.Request, appEnv AppEnv) {
+	queryParams := req.URL.Query()
+
+	input := queryParams.Get("input")
+
+	suggestionResponse := reservationchecker.GetRecAreaSuggestions(input)
+
+	appEnv.Render.JSON(w, http.StatusOK, suggestionResponse)
+}
+
+func GetLocationListByCity(w http.ResponseWriter, req *http.Request, appEnv AppEnv) {
+
+	// check that params are valid for city, state, start date, and end date
+	queryParams := req.URL.Query()
+
+	//validate params
+	city := queryParams.Get("city")
+	if util.IsEmpty(city) {
+		err := errors.CreateError(http.StatusBadRequest, "city is a required parameter")
+		http.Error(w, err.Error(), err.StatusCode)
+		return
+	}
+	state := queryParams.Get("state")
+	if util.IsEmpty(city) {
+		err := errors.CreateError(http.StatusBadRequest, "state is a required parameter")
+		http.Error(w, err.Error(), err.StatusCode)
+		return
+	}
+	start_date_initial := queryParams.Get("start_date")
+	end_date_initial := queryParams.Get("end_date")
+	is_start_date, start_date := util.ValidateAndReturnDate(start_date_initial)
+	is_end_date, end_date := util.ValidateAndReturnDate(end_date_initial)
+	if !is_start_date || !is_end_date {
+		err := errors.CreateError(http.StatusBadRequest, "date is a required parameter, in this form: 2006-01-02")
+		http.Error(w, err.Error(), err.StatusCode)
+		return
+	}
+
+	LatLng, err := geocoding.GetLngLat(city, state)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	campingSearchData := reservationchecker.UrlParams{
+		Lat:                         fmt.Sprintf("%f", LatLng.Lat),
+		Lng:                         fmt.Sprintf("%f", LatLng.Lng),
+		Location:                    city,
+		State:                       state,
+		Radius:                      "300",
+		Start_date:                  start_date,
+		End_date:                    end_date,
+		Include_partially_available: "true",
+		Include_notreservable:       "false",
+	}
+
+	reservations := reservationchecker.GetLocationListByCity(campingSearchData)
+
+	appEnv.Render.JSON(w, http.StatusOK, reservations)
+
 }
 
 // ListUsersHandler returns a list of users

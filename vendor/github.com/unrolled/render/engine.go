@@ -30,6 +30,8 @@ type HTML struct {
 	Head
 	Name      string
 	Templates *template.Template
+
+	bp GenericBufferPool
 }
 
 // JSON built-in renderer.
@@ -73,18 +75,25 @@ func (d Data) Render(w io.Writer, v interface{}) error {
 		if c != "" {
 			d.Head.ContentType = c
 		}
+
 		d.Head.Write(hw)
 	}
 
-	w.Write(v.([]byte))
+	_, _ = w.Write(v.([]byte))
+
 	return nil
 }
 
 // Render a HTML response.
 func (h HTML) Render(w io.Writer, binding interface{}) error {
-	// Retrieve a buffer from the pool to write to.
-	out := bufPool.Get()
-	err := h.Templates.ExecuteTemplate(out, h.Name, binding)
+	var buf *bytes.Buffer
+	if h.bp != nil {
+		// If we have a bufferpool, allocate from it
+		buf = h.bp.Get()
+		defer h.bp.Put(buf)
+	}
+
+	err := h.Templates.ExecuteTemplate(buf, h.Name, binding)
 	if err != nil {
 		return err
 	}
@@ -92,10 +101,9 @@ func (h HTML) Render(w io.Writer, binding interface{}) error {
 	if hw, ok := w.(http.ResponseWriter); ok {
 		h.Head.Write(hw)
 	}
-	out.WriteTo(w)
 
-	// Return the buffer to the pool.
-	bufPool.Put(out)
+	_, _ = buf.WriteTo(w)
+
 	return nil
 }
 
@@ -105,34 +113,36 @@ func (j JSON) Render(w io.Writer, v interface{}) error {
 		return j.renderStreamingJSON(w, v)
 	}
 
-	var result []byte
-	var err error
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(!j.UnEscapeHTML)
 
 	if j.Indent {
-		result, err = json.MarshalIndent(v, "", "  ")
-		result = append(result, '\n')
-	} else {
-		result, err = json.Marshal(v)
+		encoder.SetIndent("", "  ")
 	}
-	if err != nil {
+
+	if err := encoder.Encode(v); err != nil {
 		return err
 	}
 
-	// Unescape HTML if needed.
-	if j.UnEscapeHTML {
-		result = bytes.Replace(result, []byte("\\u003c"), []byte("<"), -1)
-		result = bytes.Replace(result, []byte("\\u003e"), []byte(">"), -1)
-		result = bytes.Replace(result, []byte("\\u0026"), []byte("&"), -1)
-	}
+	output := buf.Bytes()
 
 	// JSON marshaled fine, write out the result.
 	if hw, ok := w.(http.ResponseWriter); ok {
 		j.Head.Write(hw)
 	}
+
 	if len(j.Prefix) > 0 {
-		w.Write(j.Prefix)
+		_, _ = w.Write(j.Prefix)
 	}
-	w.Write(result)
+
+	// Remove the newline that json.Encode injects when not indenting the output.
+	if !j.Indent {
+		output = bytes.TrimSuffix(output, []byte("\n"))
+	}
+
+	_, _ = w.Write(output)
+
 	return nil
 }
 
@@ -140,16 +150,25 @@ func (j JSON) renderStreamingJSON(w io.Writer, v interface{}) error {
 	if hw, ok := w.(http.ResponseWriter); ok {
 		j.Head.Write(hw)
 	}
+
 	if len(j.Prefix) > 0 {
-		w.Write(j.Prefix)
+		_, _ = w.Write(j.Prefix)
 	}
 
-	return json.NewEncoder(w).Encode(v)
+	encoder := json.NewEncoder(w)
+	encoder.SetEscapeHTML(!j.UnEscapeHTML)
+
+	if j.Indent {
+		encoder.SetIndent("", "  ")
+	}
+
+	return encoder.Encode(v)
 }
 
 // Render a JSONP response.
 func (j JSONP) Render(w io.Writer, v interface{}) error {
 	var result []byte
+
 	var err error
 
 	if j.Indent {
@@ -157,6 +176,7 @@ func (j JSONP) Render(w io.Writer, v interface{}) error {
 	} else {
 		result, err = json.Marshal(v)
 	}
+
 	if err != nil {
 		return err
 	}
@@ -165,14 +185,16 @@ func (j JSONP) Render(w io.Writer, v interface{}) error {
 	if hw, ok := w.(http.ResponseWriter); ok {
 		j.Head.Write(hw)
 	}
-	w.Write([]byte(j.Callback + "("))
-	w.Write(result)
-	w.Write([]byte(");"))
+
+	_, _ = w.Write([]byte(j.Callback + "("))
+	_, _ = w.Write(result)
+	_, _ = w.Write([]byte(");"))
 
 	// If indenting, append a new line.
 	if j.Indent {
-		w.Write([]byte("\n"))
+		_, _ = w.Write([]byte("\n"))
 	}
+
 	return nil
 }
 
@@ -183,16 +205,19 @@ func (t Text) Render(w io.Writer, v interface{}) error {
 		if c != "" {
 			t.Head.ContentType = c
 		}
+
 		t.Head.Write(hw)
 	}
 
-	w.Write([]byte(v.(string)))
+	_, _ = w.Write([]byte(v.(string)))
+
 	return nil
 }
 
 // Render an XML response.
 func (x XML) Render(w io.Writer, v interface{}) error {
 	var result []byte
+
 	var err error
 
 	if x.Indent {
@@ -201,6 +226,7 @@ func (x XML) Render(w io.Writer, v interface{}) error {
 	} else {
 		result, err = xml.Marshal(v)
 	}
+
 	if err != nil {
 		return err
 	}
@@ -209,9 +235,12 @@ func (x XML) Render(w io.Writer, v interface{}) error {
 	if hw, ok := w.(http.ResponseWriter); ok {
 		x.Head.Write(hw)
 	}
+
 	if len(x.Prefix) > 0 {
-		w.Write(x.Prefix)
+		_, _ = w.Write(x.Prefix)
 	}
-	w.Write(result)
+
+	_, _ = w.Write(result)
+
 	return nil
 }
